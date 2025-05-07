@@ -1,0 +1,4 @@
+ARIMA Performance:
+MAE: 0.3276
+RMSE: 0.4097
+
