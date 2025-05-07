@@ -1,3 +1,5 @@
+# src/pricing_strategy.py
+
 import os
 import numpy as np
 import pandas as pd
@@ -20,15 +22,19 @@ data = pd.read_csv(processed_data_path)
 print("Processed Data:")
 print(data.head())
 
-# Define pricing strategies
+# Define pricing strategies using available data
 def fixed_pricing(price):
     return price
 
-def dynamic_pricing(demand, base_price):
-    return base_price * (1 + demand / 100)
+def dynamic_pricing(sales, base_price):
+    """Use normalized sales as demand indicator"""
+    # Scale sales between 0-1 for price adjustment
+    max_sales = data['sales'].max()
+    demand_factor = sales / max_sales
+    return base_price * (1 + (demand_factor - 0.5))  # Adjust ±50% from base
 
 def promotional_pricing(day_of_week, base_price):
-    if day_of_week in [5, 6]:  # Assume promotions on weekends
+    if day_of_week in [5, 6]:  # Weekends
         return base_price * 0.9  # 10% discount
     else:
         return base_price
@@ -41,7 +47,8 @@ def apply_pricing_strategy(strategy, data, base_price):
         if strategy == 'fixed':
             price = fixed_pricing(base_price)
         elif strategy == 'dynamic':
-            price = dynamic_pricing(row['demand'], base_price)
+            # Use sales as demand proxy
+            price = dynamic_pricing(row['sales'], base_price)
         elif strategy == 'promotional':
             price = promotional_pricing(row['day_of_week'], base_price)
         else:
@@ -88,7 +95,7 @@ plt.xlabel('Pricing Strategy')
 plt.ylabel('Total Revenue')
 plt.title('Total Revenue by Pricing Strategy')
 plt.savefig(os.path.join(figures_path, 'total_revenue_by_pricing_strategy.png'))
-plt.show()
+plt.close()
 
 plt.figure(figsize=(12, 6))
 plt.bar(strategies_names, avg_prices, color=['blue', 'green', 'red'])
@@ -96,6 +103,6 @@ plt.xlabel('Pricing Strategy')
 plt.ylabel('Average Price')
 plt.title('Average Price by Pricing Strategy')
 plt.savefig(os.path.join(figures_path, 'average_price_by_pricing_strategy.png'))
-plt.show()
+plt.close()
 
 print("Pricing strategy evaluation completed!")
