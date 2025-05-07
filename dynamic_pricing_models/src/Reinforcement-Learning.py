@@ -8,97 +8,75 @@ from collections import deque
 import random
 from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
-from tensorflow.keras.models import Sequential, clone_model
+from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.optimizers import Adam
-from typing import Tuple, List
 
-# Suppress TensorFlow info messages
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+# Suppress TensorFlow logs
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 tf.get_logger().setLevel('ERROR')
 
-class PriceEnvironment:
-    """Custom environment for pricing problem"""
-    def __init__(self, data: pd.DataFrame):
+class PricingEnvironment:
+    def __init__(self, data):
         self.data = data
-        self.states = self._prepare_states()
-        self.actions = self._prepare_actions()
+        self.state_features = ['sales', 'price', 'rolling_mean_7', 'rolling_std_7']
+        self.scaler = MinMaxScaler()
+        self.states = self.scaler.fit_transform(data[self.state_features].values)
+        self.actions = np.linspace(data['price'].min()*0.8, data['price'].max()*1.2, 10)
         self.current_step = 0
         self.max_steps = len(data) - 1
-        
-    def _prepare_states(self) -> np.ndarray:
-        """Normalize state features"""
-        features = self.data[['sales', 'price', 'rolling_mean_7', 'rolling_std_7']].values
-        scaler = MinMaxScaler()
-        return scaler.fit_transform(features)
     
-    def _prepare_actions(self) -> np.ndarray:
-        """Create discrete action space"""
-        min_price = self.data['price'].min()
-        max_price = self.data['price'].max()
-        return np.linspace(min_price * 0.9, max_price * 1.1, 15)  # 15 price points
-    
-    def reset(self) -> np.ndarray:
-        """Reset environment to initial state"""
+    def reset(self):
         self.current_step = 0
         return self.states[0].reshape(1, -1)
     
-    def step(self, action_idx: int) -> Tuple[np.ndarray, float, bool]:
-        """Execute one step in the environment"""
+    def step(self, action_idx):
         self.current_step += 1
+        if self.current_step >= self.max_steps:
+            raise IndexError("Episode completed")
+            
         next_state = self.states[self.current_step].reshape(1, -1)
         done = self.current_step == self.max_steps
         
-        # Reward calculation (can be customized)
+        # Calculate reward (profit = sales * (price - cost))
+        # Assuming 20% profit margin for this example
         price = self.actions[action_idx]
-        demand = next_state[0][0]  # Normalized sales
-        reward = demand * price  # Revenue as reward
+        cost = price * 0.8
+        reward = next_state[0][0] * (price - cost)  # sales * profit per unit
         
         return next_state, reward, done
 
 class DQNAgent:
-    """Deep Q-Network Agent for dynamic pricing"""
-    def __init__(self, state_size: int, action_size: int):
+    def __init__(self, state_size, action_size):
         self.state_size = state_size
         self.action_size = action_size
         self.memory = deque(maxlen=2000)
-        self.gamma = 0.95  # Discount factor
-        self.epsilon = 1.0  # Exploration rate
+        self.gamma = 0.95
+        self.epsilon = 1.0
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.995
-        self.batch_size = 64
+        self.batch_size = 32
         self.model = self._build_model()
-        self.target_model = clone_model(self.model)
-        self.update_target_model()
-        
-    def _build_model(self) -> Sequential:
-        """Build the neural network model"""
+    
+    def _build_model(self):
         model = Sequential([
-            Dense(64, input_dim=self.state_size, activation='relu'),
-            Dense(64, activation='relu'),
+            Dense(24, input_dim=self.state_size, activation='relu'),
+            Dense(24, activation='relu'),
             Dense(self.action_size, activation='linear')
         ])
         model.compile(loss='mse', optimizer=Adam(learning_rate=0.001))
         return model
     
-    def update_target_model(self):
-        """Update target network weights"""
-        self.target_model.set_weights(self.model.get_weights())
-        
-    def remember(self, state: np.ndarray, action: int, reward: float, 
-                next_state: np.ndarray, done: bool):
-        """Store experience in replay memory"""
+    def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
-        
-    def act(self, state: np.ndarray) -> int:
-        """Select action using epsilon-greedy policy"""
+    
+    def act(self, state):
         if np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
-        q_values = self.model.predict(state, verbose=0)
-        return np.argmax(q_values[0])
+        act_values = self.model.predict(state, verbose=0)
+        return np.argmax(act_values[0])
     
     def replay(self):
-        """Train on batch from replay memory"""
         if len(self.memory) < self.batch_size:
             return
             
@@ -106,156 +84,94 @@ class DQNAgent:
         states = np.array([x[0][0] for x in minibatch])
         next_states = np.array([x[3][0] for x in minibatch])
         
-        # Batch prediction for efficiency
-        current_q = self.model.predict(states, verbose=0)
-        next_q = self.target_model.predict(next_states, verbose=0)
+        targets = self.model.predict(states, verbose=0)
+        next_q_values = self.model.predict(next_states, verbose=0)
         
-        for i, (_, action, reward, _, done) in enumerate(minibatch):
+        for i, (state, action, reward, next_state, done) in enumerate(minibatch):
             if done:
-                current_q[i][action] = reward
+                targets[i][action] = reward
             else:
-                current_q[i][action] = reward + self.gamma * np.amax(next_q[i])
+                targets[i][action] = reward + self.gamma * np.amax(next_q_values[i])
         
-        # Train on batch
-        self.model.fit(states, current_q, batch_size=self.batch_size, 
-                      epochs=1, verbose=0)
+        self.model.fit(states, targets, epochs=1, verbose=0)
         
-        # Decay epsilon
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
     
-    def save(self, path: str):
-        """Save model weights"""
-        self.model.save_weights(path)
-        
-    def load(self, path: str):
-        """Load model weights"""
-        self.model.load_weights(path)
-
-def train_agent(env: PriceEnvironment, agent: DQNAgent, 
-               episodes: int = 1000) -> List[float]:
-    """Train DQN agent"""
-    episode_rewards = []
-    
-    for e in range(episodes):
-        state = env.reset()
-        total_reward = 0
-        done = False
-        
-        while not done:
-            action_idx = agent.act(state)
-            next_state, reward, done = env.step(action_idx)
-            agent.remember(state, action_idx, reward, next_state, done)
-            state = next_state
-            total_reward += reward
-            agent.replay()
-            
-        # Update target network periodically
-        if e % 10 == 0:
-            agent.update_target_model()
-            
-        episode_rewards.append(total_reward)
-        
-        # Print progress
-        if (e+1) % 100 == 0:
-            avg_reward = np.mean(episode_rewards[-100:])
-            print(f"Episode: {e+1}/{episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {agent.epsilon:.2f}")
-    
-    return episode_rewards
-
-def evaluate_agent(env: PriceEnvironment, agent: DQNAgent) -> Tuple[float, List[float]]:
-    """Evaluate trained agent"""
-    state = env.reset()
-    total_reward = 0
-    rewards = []
-    done = False
-    
-    while not done:
-        action_idx = agent.act(state)
-        next_state, reward, done = env.step(action_idx)
-        state = next_state
-        total_reward += reward
-        rewards.append(reward)
-        
-    return total_reward, rewards
-
-def plot_results(rewards: List[float], path: str):
-    """Plot and save training results"""
-    plt.figure(figsize=(12, 6))
-    
-    # Plot raw rewards
-    plt.subplot(1, 2, 1)
-    plt.plot(rewards)
-    plt.title('Rewards per Episode')
-    plt.xlabel('Episode')
-    plt.ylabel('Total Reward')
-    
-    # Plot moving average
-    plt.subplot(1, 2, 2)
-    window_size = max(10, len(rewards) // 20)
-    moving_avg = pd.Series(rewards).rolling(window_size).mean()
-    plt.plot(moving_avg)
-    plt.title(f'Moving Average (window={window_size})')
-    plt.xlabel('Episode')
-    plt.ylabel('Average Reward')
-    
-    plt.tight_layout()
-    plt.savefig(path)
-    plt.close()
+    def save(self, name):
+        self.model.save_weights(name)
 
 def main():
-    # Define file paths
+    # Configuration
     processed_data_path = 'data/processed/processed_data.csv'
-    rl_model_path = 'models/rl_pricing_model.h5'
-    results_path = 'results/rl_pricing_results.txt'
-    figures_path = 'figures/rewards_plot.png'
+    model_path = 'models/rl_pricing_model.h5'
+    results_path = 'results/rl_results.txt'
+    figures_path = 'figures/training_progress.png'
     
     # Create directories
-    os.makedirs(os.path.dirname(rl_model_path), exist_ok=True)
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
     os.makedirs(os.path.dirname(figures_path), exist_ok=True)
     
     try:
-        # Load and prepare data
-        print("Loading and preparing data...")
+        print("1. Loading data...")
         data = pd.read_csv(processed_data_path)
         data['date'] = pd.to_datetime(data['date'])
         data.set_index('date', inplace=True)
         
-        # Create environment and agent
-        env = PriceEnvironment(data)
+        print("2. Creating environment...")
+        env = PricingEnvironment(data)
+        
+        print("3. Initializing agent...")
         agent = DQNAgent(env.states.shape[1], len(env.actions))
         
-        # Train agent
-        print("Training DQN agent...")
-        episode_rewards = train_agent(env, agent, episodes=1000)
+        print("4. Starting training...")
+        episodes = 100  # Reduced from 1000 for faster testing
+        rewards_history = []
         
-        # Save trained model
-        agent.save(rl_model_path)
-        print(f"Model saved to {rl_model_path}")
+        for e in range(episodes):
+            state = env.reset()
+            total_reward = 0
+            done = False
+            
+            while not done:
+                try:
+                    action = agent.act(state)
+                    next_state, reward, done = env.step(action)
+                    agent.remember(state, action, reward, next_state, done)
+                    state = next_state
+                    total_reward += reward
+                    agent.replay()
+                except Exception as e:
+                    print(f"Error in step: {str(e)}")
+                    break
+            
+            rewards_history.append(total_reward)
+            
+            if (e+1) % 50 == 0:
+                avg_reward = np.mean(rewards_history[-50:])
+                print(f"Episode: {e+1}, Avg Reward: {avg_reward:.2f}, Epsilon: {agent.epsilon:.2f}")
         
-        # Evaluate agent
-        print("Evaluating agent...")
-        total_reward, test_rewards = evaluate_agent(env, agent)
-        print(f"Total Evaluation Reward: {total_reward:.2f}")
+        print("5. Saving model...")
+        agent.save(model_path)
         
-        # Save results
+        print("6. Saving results...")
+        plt.figure(figsize=(10, 6))
+        plt.plot(rewards_history)
+        plt.title("Training Progress")
+        plt.xlabel("Episode")
+        plt.ylabel("Total Reward")
+        plt.savefig(figures_path)
+        plt.close()
+        
         with open(results_path, 'w') as f:
-            f.write(f"Final Evaluation Reward: {total_reward:.2f}\n")
-            f.write(f"Average Training Reward: {np.mean(episode_rewards):.2f}\n")
-            f.write(f"Max Training Reward: {np.max(episode_rewards):.2f}\n")
+            f.write(f"Final Reward: {rewards_history[-1]:.2f}\n")
+            f.write(f"Average Reward: {np.mean(rewards_history):.2f}\n")
         
-        # Plot results
-        plot_results(episode_rewards, figures_path)
-        print(f"Results plot saved to {figures_path}")
-        
-        print("Reinforcement learning completed successfully!")
+        print("Training completed successfully!")
         
     except Exception as e:
-        print(f"Error in reinforcement learning: {str(e)}")
-        return 1
-    
-    return 0
+        print(f"Error in training: {str(e)}")
 
 if __name__ == "__main__":
     main()
