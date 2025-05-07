@@ -2,3 +2,15 @@ ARIMA Performance:
 MAE: 0.3276
 RMSE: 0.4097
 
+ARIMA Performance:
+MAE: 0.6742
+RMSE: 0.9254
+
+Prophet Performance:
+MAE: 0.7128
+RMSE: 0.8441
+
+LSTM Performance:
+MAE: 0.7391
+RMSE: 0.8861
+

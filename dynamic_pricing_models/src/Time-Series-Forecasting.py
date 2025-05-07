@@ -32,8 +32,14 @@ data = pd.read_csv(processed_data_path)
 
 # Ensure date column is in datetime format and set as index
 data['date'] = pd.to_datetime(data['date'], format='%Y-%m-%d')
+
+# Handle duplicate dates by aggregating (summing sales)
+data = data.groupby('date')['sales'].sum().reset_index()
+
+# Set date as index and ensure proper frequency
 data.set_index('date', inplace=True)
-data = data.asfreq('D').sort_index()  # Ensure daily frequency and monotonic
+data = data[~data.index.duplicated(keep='first')]  # Remove any remaining duplicates
+data = data.sort_index()  # Ensure dates are sorted
 
 # Split data into training and test sets
 train_data = data.iloc[:-30]  # Use all but the last 30 days for training
@@ -127,7 +133,7 @@ try:
 
     # Train LSTM model
     history = lstm_model.fit(X_train, y_train, epochs=50, batch_size=32, 
-                           validation_split=0.2, callbacks=[early_stopping, model_checkpoint])
+    validation_split=0.2, callbacks=[early_stopping, model_checkpoint])
 
     # Prepare test data
     total_data = pd.concat((train_data['sales'], test_data['sales']), axis=0)
