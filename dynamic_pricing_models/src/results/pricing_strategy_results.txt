@@ -14,3 +14,15 @@ Promotional Pricing Strategy:
 Total Revenue: $160.06
 Average Price: $0.32
 
+Fixed Pricing Strategy:
+Total Revenue: $164.56
+Average Price: $0.33
+
+Dynamic Pricing Strategy:
+Total Revenue: $211.77
+Average Price: $0.33
+
+Promotional Pricing Strategy:
+Total Revenue: $160.06
+Average Price: $0.32
+
