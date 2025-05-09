@@ -6,41 +6,41 @@ import numpy as np
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 from datetime import datetime
 
-# Define file paths
+# paths
 raw_data_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw', 'sales_data.csv')
 processed_data_path = 'data/processed/processed_data.csv'
 
-# Create directories if they don't exist
+# craete a folder if they doesnt exist
 os.makedirs(os.path.dirname(processed_data_path), exist_ok=True)
 
-# Load raw data
+# Read data
 print("Loading raw data...")
 data = pd.read_csv(raw_data_path)
 
-# Display the first few rows of the dataset
+# show firsts line
 print("Raw Data:")
 print(data.head())
 
-# Data Cleaning
+
 print("Cleaning data...")
 
 # Handle missing values
 data.fillna(method='ffill', inplace=True)
 
-# Rename columns to match expected names
+# Rename columns 
 data = data.rename(columns={
     'Date': 'date',
     'Quantity': 'sales',
     'Price per Unit': 'price'
 })
 
-# Convert date column to datetime
+# date column to datetime
 data['date'] = pd.to_datetime(data['date'], format='%Y-%m-%d')
 
-# Feature Engineering
+
 print("Performing feature engineering...")
 
-# Extract temporal features
+# temporal features
 data['year'] = data['date'].dt.year
 data['month'] = data['date'].dt.month
 data['day'] = data['date'].dt.day
@@ -52,11 +52,11 @@ data['price_diff'] = data['price'].diff().fillna(0)
 data['price_change_pct'] = data['price'].pct_change().fillna(0)
 
 # Sales features
-data['rolling_mean_7'] = data['sales'].rolling(window=7).mean().fillna(0)
+data['rolling_avg_7'] = data['sales'].rolling(window=7).mean().fillna(0)
 data['rolling_std_7'] = data['sales'].rolling(window=7).std().fillna(0)
 data['sales_lag_1'] = data['sales'].shift(1).fillna(0)
 
-# Customer features (if needed for segmentation)
+# Customer grpd by age
 data['customer_segment'] = pd.qcut(data['Age'], q=4, labels=False)
 
 # Encode categorical features
@@ -65,10 +65,10 @@ label_encoders = {}
 categorical_cols = ['Gender', 'Product Category', 'Customer ID']
 for column in categorical_cols:
     if column in data.columns:
-        label_encoders[column] = LabelEncoder()
-        data[column] = label_encoders[column].fit_transform(data[column])
+        label_encoders[column] = LabelEncoder() # Creates an encoder
+        data[column] = label_encoders[column].fit_transform(data[column]) # T to N
 
-# Normalize numerical features
+# Normalize numerical 0/1
 print("Normalizing numerical features...")
 scaler = MinMaxScaler()
 numerical_features = [
