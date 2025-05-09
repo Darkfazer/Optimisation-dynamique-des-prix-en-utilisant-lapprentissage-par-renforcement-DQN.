@@ -20,6 +20,11 @@ os.makedirs(figures_path, exist_ok=True)
 print("Loading processed data...")
 data = pd.read_csv(processed_data_path)
 
+# Convert date to datetime and extract features
+data['date'] = pd.to_datetime(data['date'])
+data['day_of_year'] = data['date'].dt.dayofyear
+data['week_of_year'] = data['date'].dt.isocalendar().week
+
 # Display the first few rows of the dataset
 print("Processed Data:")
 print(data.head())
@@ -41,7 +46,8 @@ for feature in numerical_features:
 
 # Correlation matrix
 print("Correlation Matrix:")
-correlation_matrix = data.corr()
+numeric_data = data.select_dtypes(include=['number'])
+correlation_matrix = numeric_data.corr()
 print(correlation_matrix)
 
 plt.figure(figsize=(12, 8))

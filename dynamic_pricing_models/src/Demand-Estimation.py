@@ -9,35 +9,48 @@ import seaborn as sns
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-# Define file paths
-processed_data_path = 'data/processed/processed_data.csv'
+# paths
+processed_data_path = 'data/processed/sales_data.csv'
 results_path = 'results/demand_estimation_results.txt'
 figures_path = 'figures'
 
-# Create directories if they don't exist
+# create directories
 os.makedirs(os.path.dirname(results_path), exist_ok=True)
 os.makedirs(figures_path, exist_ok=True)
 
-# Load processed data
+# load data
 print("Loading processed data...")
 data = pd.read_csv(processed_data_path)
 
-# Display the first few rows of the dataset
+# show few lines
 print("Processed Data:")
 print(data.head())
 
-# Convert numeric columns (in case they're read as strings)
-numeric_cols = ['price', 'sales', 'rolling_mean_7', 'rolling_std_7', 'sales_lag_1']
+# rename columns to match expected names
+data = data.rename(columns={
+    'Price per Unit': 'price',
+    'Quantity': 'sales'
+})
+
+# create rolling averages if needed (commented out since we don't have date info)
+# data['date'] = pd.to_datetime(data['Date'])
+# data = data.sort_values('date')
+# data['rolling_avg_7'] = data['sales'].rolling(window=7).mean()
+# data['rolling_std_7'] = data['sales'].rolling(window=7).std()
+# data['sales_lag_1'] = data['sales'].shift(1)
+
+# make sure columns are numbers
+numeric_cols = ['price', 'sales']  # removed the rolling/lag columns for now
 data[numeric_cols] = data[numeric_cols].apply(pd.to_numeric, errors='coerce')
 
-# Filter out invalid values
+# remove invalid rows
 data = data[(data['price'] > 0) & (data['sales'] > 0)].copy()
 
-# Define the features and target variable
+# prepare data
 X = data[['price']].values
 y = data['sales'].values
 
-# Fit a linear regression model
+# linear regression model
 print("Fitting linear regression model...")
 model = LinearRegression()
 model.fit(X, y)
@@ -67,11 +80,11 @@ print("Calculating demand elasticity...")
 data['price_log'] = np.log(data['price'])
 data['sales_log'] = np.log(data['sales'])
 
-# Drop any infinite or missing values
+# Remove missing values
 data.replace([np.inf, -np.inf], np.nan, inplace=True)
 data.dropna(subset=['price_log', 'sales_log'], inplace=True)
 
-if len(data) > 1:
+if len(data) > 1: #enough data to run regression
     try:
         elasticity_model = sm.OLS(data['sales_log'], sm.add_constant(data['price_log'])).fit()
         elasticity = elasticity_model.params['price_log']
@@ -87,7 +100,7 @@ else:
     with open(results_path, 'a') as f:
         f.write("Could not calculate elasticity - insufficient valid data\n")
 
-# Plot the relationship between price and demand
+# relation between price and demand
 plt.figure(figsize=(10, 6))
 sns.scatterplot(x=data['price'], y=data['sales'])
 plt.plot(data['price'], y_pred, color='red', linewidth=2)
@@ -95,9 +108,9 @@ plt.title('Price vs. Sales')
 plt.xlabel('Price')
 plt.ylabel('Sales')
 plt.savefig(os.path.join(figures_path, 'price_vs_sales.png'))
-plt.close()  # Close the figure to free memory
+plt.close()  
 
-# Plot the log-log relationship if possible
+# log-log relationship 
 if len(data) > 1 and 'price_log' in data.columns and 'sales_log' in data.columns:
     plt.figure(figsize=(10, 6))
     sns.scatterplot(x=data['price_log'], y=data['sales_log'])
@@ -111,5 +124,5 @@ if len(data) > 1 and 'price_log' in data.columns and 'sales_log' in data.columns
     plt.ylabel('Log Sales')
     plt.savefig(os.path.join(figures_path, 'log_price_vs_log_sales.png'))
     plt.close()
-
+    
 print("Demand estimation completed!")

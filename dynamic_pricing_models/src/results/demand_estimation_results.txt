@@ -1,5 +1,5 @@
 Demand Estimation Model Performance:
-MAE: 0.2254
-RMSE: 0.2711
-R-squared: 0.0000
-Demand Elasticity: 0.0087
+MAE: 1.0151
+RMSE: 1.1320
+R-squared: 0.0003
+Demand Elasticity: 0.0121
